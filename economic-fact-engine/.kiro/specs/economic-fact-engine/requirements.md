@@ -40,7 +40,7 @@ The system is designed with forward compatibility in mind: future facts (custome
 2. WHEN a Fact_Request is received with a missing or empty Wallet_Address field, THE Engine SHALL return a structured error with error code `MISSING_REQUIRED_FIELD`.
 3. WHEN a Fact_Request is received with a Wallet_Address that is not a 56-character base32 string starting with `G`, THE Engine SHALL return a structured error with error code `INVALID_WALLET_ADDRESS`.
 4. WHEN a Fact_Request is received with a missing or empty Time_Window field, THE Engine SHALL return a structured error with error code `MISSING_REQUIRED_FIELD`.
-5. WHEN a Fact_Request is received with a Time_Window of zero or a negative number of days, THE Engine SHALL return a structured error with error code `INVALID_TIME_WINDOW`.
+5. WHEN a Fact_Request is received with a Time_Window of zero or a negative number of days, THE Engine SHALL return a structured error with error code `INVALID_TIME_WINDOW`. Validation SHALL only be triggered upon receipt of a complete Fact_Request; partial or malformed requests that are missing core structure SHALL be handled by the `MISSING_REQUIRED_FIELD` error code rather than time window validation.
 6. WHEN a Fact_Request is received with a Time_Window exceeding 365 days, THE Engine SHALL return a structured error with error code `INVALID_TIME_WINDOW`.
 7. THE Engine SHALL treat the Time_Window as a trailing period ending at the current UTC timestamp at the moment the request is processed.
 8. WHEN a Fact_Request is received with a missing or empty fact type field, THE Engine SHALL return a structured error with error code `MISSING_REQUIRED_FIELD`.
@@ -68,11 +68,11 @@ The system is designed with forward compatibility in mind: future facts (custome
 
 #### Acceptance Criteria
 
-1. WHEN Payment_Operations have been retrieved, THE Transaction_Processor SHALL sum the destination amounts of all Payment_Operations where: (a) the destination asset code is `USDC`, (b) the destination asset issuer is `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN`, and (c) the destination account matches the Wallet_Address in the Fact_Request.
+1. WHEN Payment_Operations have been retrieved, THE Transaction_Processor SHALL sum the destination amounts of all Payment_Operations where: (a) the destination asset code is `USDC`, (b) the destination asset issuer is `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN`, and (c) the destination account matches the Wallet_Address in the Fact_Request. Negative amounts (representing refunds or chargebacks) SHALL be included in the sum, and the Revenue_Fact value SHALL always equal the arithmetic sum of all qualifying operation amounts, which may be negative.
 2. THE Transaction_Processor SHALL preserve precision to exactly 7 decimal places during summation, consistent with Stellar's stroop precision, truncating (not rounding) any excess precision.
 3. WHEN a Payment_Operation's destination asset code or issuer does not match canonical USDC, THE Transaction_Processor SHALL exclude that operation from the Revenue_Fact computation without error.
 4. WHEN a Payment_Operation's asset issuer field is null or missing, THE Transaction_Processor SHALL treat that operation as non-USDC and exclude it from computation.
-5. WHEN no qualifying USDC Payment_Operations exist within the Time_Window, THE Transaction_Processor SHALL produce a Revenue_Fact with a value of `0.0000000`.
+5. WHEN qualifying USDC Payment_Operations exist within the Time_Window, THE Transaction_Processor SHALL produce a Revenue_Fact whose value equals the arithmetic sum of all qualifying operation amounts. WHEN no qualifying USDC Payment_Operations exist within the Time_Window, THE Transaction_Processor SHALL produce a Revenue_Fact with a value of `0.0000000`.
 6. IF the Wallet_Address is both the source and destination of a Payment_Operation (self-payment), THEN THE Transaction_Processor SHALL include that operation in the Revenue_Fact computation, as it represents an inbound credit to the wallet.
 7. THE Transaction_Processor SHALL NOT include Payment_Operations where the Wallet_Address is the source account and the destination account is a different address.
 8. WHEN a Payment_Operation has a null, missing, or non-numeric amount field, THE Transaction_Processor SHALL skip that operation and continue processing remaining operations without returning an error.
@@ -113,7 +113,7 @@ The system is designed with forward compatibility in mind: future facts (custome
 #### Acceptance Criteria
 
 1. WHEN the Horizon_API returns an HTTP 429 (rate limit) or 5xx (server error) response, THE Stellar_Client SHALL retry the same request up to 3 additional times (4 total attempts) before returning an error.
-2. WHEN retrying, THE Stellar_Client SHALL wait 1 second before the first retry, 2 seconds before the second retry, and 4 seconds before the third retry (exponential backoff), with a maximum wait of 30 seconds per interval.
+2. WHEN retrying, THE Stellar_Client SHALL wait 1 second before the first retry, 2 seconds before the second retry, and 4 seconds before the third retry (exponential backoff), with a maximum wait of 30 seconds per interval. For any retry attempt index outside the explicitly defined range of 1–3, THE Stellar_Client SHALL allow any wait time within the 30-second maximum interval.
 3. WHEN all 3 retry attempts are exhausted and the Horizon_API has not returned a successful response, THE Stellar_Client SHALL return a structured error with error code `HORIZON_MAX_RETRIES_EXCEEDED`.
 4. WHEN the Horizon_API returns an HTTP 4xx error other than 429, THE Stellar_Client SHALL NOT retry and SHALL return the error immediately with error code `HORIZON_API_FAILURE`.
 5. THE retry counter SHALL reset independently for each paginated page request; a failure on page N SHALL trigger up to 3 retries for page N without affecting the retry budget of other pages.
@@ -127,5 +127,5 @@ The system is designed with forward compatibility in mind: future facts (custome
 #### Acceptance Criteria
 
 1. THE Engine SHALL represent Fact types using an extensible tagged-union (enum) data model such that adding a new fact variant requires no changes to the serialization or schema of existing fact type variants.
-2. WHEN a Fact_Request specifies a fact type that the Engine does not yet support, THE Engine SHALL return a structured error with error code `UNSUPPORTED_FACT_TYPE` without performing any computation.
+2. WHEN a Fact_Request specifies a fact type that the Engine does not yet support, THE Engine SHALL generate a structured error with error code `UNSUPPORTED_FACT_TYPE` without performing any computation. THE Engine SHALL make a best-effort attempt to return this error to the caller; if the structured error response fails to be delivered, the correct error code generation is sufficient to satisfy this requirement.
 3. THE Engine SHALL define the Fact schema such that each fact type variant is self-describing — every Fact value SHALL contain its own type identifier (e.g., `"revenue"`), a computed value, and a unit of measurement (e.g., `"USDC"`).

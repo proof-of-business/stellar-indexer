@@ -45,14 +45,14 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Ensure no variant's `Display` output includes denomination, identity, Note preimage, or credential fields
     - _Requirements: 8.1, 8.3, 8.4_
 
-  - [-] 1.4 Write property test for `CorridorError` structured completeness
+  - [x] 1.4 Write property test for `CorridorError` structured completeness
     - **Property 18: Structured error completeness**
     - For each CorridorError variant, assert serialization round-trips and contains none of:
       amount literals, identity strings, or Note preimage data
     - **Validates: Requirements 8.1, 8.3, 8.4**
 
 
-- [ ] 2. ZK circuits — Groth16/BLS12-381 R1CS constraints and prover API
+- [-] 2. ZK circuits — Groth16/BLS12-381 R1CS constraints and prover API
 
   - [ ] 2.1 Implement `Deposit_Circuit` R1CS constraints
     - In `crates/zk-circuits/src/deposit.rs`, define `DepositCircuit` implementing `ark_relations::r1cs::ConstraintSynthesizer<Fr>`

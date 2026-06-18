@@ -180,3 +180,105 @@ mod tests {
         }
     }
 }
+
+// ─── Property-Based Tests ─────────────────────────────────────────────────────
+//
+// **Validates: Requirements 8.1, 8.3, 8.4**
+//
+// Property 18: Structured error completeness.
+//   - Every `CorridorError` variant must round-trip through `serde_json` losslessly.
+//   - The serialized JSON of every variant must contain none of the forbidden
+//     fragments (amount literals, identity strings, Note preimage field names).
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Map a 0-based index to a concrete `CorridorError` variant.
+    /// Update this array whenever a variant is added or removed (the proptest
+    /// strategy range `0usize..11` must stay in sync with the array length).
+    fn variant_from_index(idx: usize) -> CorridorError {
+        const VARIANTS: [fn() -> CorridorError; 11] = [
+            || CorridorError::ProofVerificationFailed,
+            || CorridorError::NullifierAlreadySpent,
+            || CorridorError::NoteAlreadyRedeemed,
+            || CorridorError::DepositAtomicityFailure,
+            || CorridorError::UnshieldedDepositRejected,
+            || CorridorError::PoolCapacityExceeded,
+            || CorridorError::InvalidAmount,
+            || CorridorError::InvalidCredential,
+            || CorridorError::CredentialExpired,
+            || CorridorError::OfframpSettlementTimeout,
+            || CorridorError::AnchorIntegrationFailure,
+        ];
+        VARIANTS[idx]()
+    }
+
+    /// Field names and value-bearing terms that must never appear in serialized
+    /// error JSON (denomination, identity, Note preimage data).
+    const FORBIDDEN_FRAGMENTS: &[&str] = &[
+        "stroops",
+        "denomination",
+        "credential_id",
+        "oracle_signature",
+        "issued_at",
+        "expires_at",
+        "identity_commitment",
+        "receiver_pk",
+        "leaf_index",
+        "merkle_path",
+        "salt",
+    ];
+
+    proptest! {
+        /// Every variant must survive a serde_json round-trip with full equality.
+        ///
+        /// **Validates: Requirements 8.1, 8.3**
+        #[test]
+        fn prop_all_variants_serde_round_trip(variant_idx in 0usize..11) {
+            let original = variant_from_index(variant_idx);
+            let json = serde_json::to_string(&original)
+                .expect("serialization must not fail");
+            let restored: CorridorError = serde_json::from_str(&json)
+                .expect("deserialization must not fail");
+            prop_assert_eq!(original, restored, "round-trip mismatch for variant index {}", variant_idx);
+        }
+
+        /// The serialized JSON of every variant must not contain any sensitive
+        /// field names or value-bearing terms.
+        ///
+        /// **Validates: Requirements 8.3, 8.4**
+        #[test]
+        fn prop_serialized_json_contains_no_sensitive_data(variant_idx in 0usize..11) {
+            let variant = variant_from_index(variant_idx);
+            let json = serde_json::to_string(&variant)
+                .expect("serialization must not fail")
+                .to_lowercase();
+
+            for fragment in FORBIDDEN_FRAGMENTS {
+                prop_assert!(
+                    !json.contains(fragment),
+                    "serialized JSON for variant index {variant_idx} contains forbidden fragment '{fragment}': {json}"
+                );
+            }
+
+            // Additionally, assert no long digit sequences are present that could
+            // represent stroop amounts (sequences of more than 6 consecutive digits).
+            let has_long_digit_run = json
+                .chars()
+                .fold((0u32, false), |(run, found), c| {
+                    if c.is_ascii_digit() {
+                        (run + 1, found || run + 1 > 6)
+                    } else {
+                        (0, found)
+                    }
+                })
+                .1;
+            prop_assert!(
+                !has_long_digit_run,
+                "serialized JSON for variant index {variant_idx} contains a digit sequence longer than 6 chars (possible amount leak): {json}"
+            );
+        }
+    }
+}

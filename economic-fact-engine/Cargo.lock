@@ -67,6 +67,7 @@ checksum = "1f3a13b34da09176a8baba701233fdffbaa7c1b1192ce031a3da4e55ce1f1a56"
 dependencies = [
  "ark-ec",
  "ark-ff",
+ "ark-r1cs-std",
  "ark-relations",
  "ark-serialize",
  "ark-snark",
@@ -75,6 +76,7 @@ dependencies = [
  "derivative",
  "digest",
  "sha2",
+ "tracing",
 ]
 
 [[package]]
@@ -147,9 +149,12 @@ dependencies = [
  "ark-ec",
  "ark-ff",
  "ark-poly",
+ "ark-r1cs-std",
  "ark-relations",
  "ark-serialize",
  "ark-std",
+ "derivative",
+ "tracing",
 ]
 
 [[package]]
@@ -3370,6 +3375,12 @@ dependencies = [
  "ark-groth16",
  "ark-r1cs-std",
  "ark-relations",
+ "ark-serialize",
+ "ark-snark",
+ "rand 0.8.6",
+ "sha2",
+ "thiserror",
+ "types",
 ]
 
 [[package]]

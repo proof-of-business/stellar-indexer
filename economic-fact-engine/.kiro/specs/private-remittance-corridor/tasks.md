@@ -15,9 +15,9 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
 
 ## Tasks
 
-- [ ] 1. Workspace scaffold — Cargo workspace, shared types, and shared errors
+- [-] 1. Workspace scaffold — Cargo workspace, shared types, and shared errors
 
-  - [ ] 1.1 Create Cargo workspace with all crate members
+  - [x] 1.1 Create Cargo workspace with all crate members
     - Create root `Cargo.toml` declaring workspace members:
       `contracts/shielded-pool`, `contracts/verifier-contract`,
       `crates/types`, `crates/errors`, `crates/zk-circuits`, `crates/corridor-sdk`,
@@ -26,7 +26,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Create skeleton `Cargo.toml` and `src/lib.rs` (or `src/main.rs`) for each member
     - _Requirements: 10.1 (single corridor scope)_
 
-  - [ ] 1.2 Implement `crates/types` — shared domain types
+  - [x] 1.2 Implement `crates/types` — shared domain types
     - Define `Note { denomination: i64, salt: [u8;32], receiver_pk: [u8;32], leaf_index: Option<u32> }`
     - Define `Commitment([u8;32])`, `Nullifier([u8;32])`, `ProofBytes([u8;192])`,
       `PublicInputs(Vec<[u8;32]>)`, `MerklePath { siblings: [[u8;32];20], indices: [bool;20], leaf_index: u32 }`

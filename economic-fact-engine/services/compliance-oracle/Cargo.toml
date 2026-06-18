@@ -1,0 +1,17 @@
+[package]
+name = "compliance-oracle"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "compliance-oracle"
+path = "src/main.rs"
+
+[dependencies]
+types      = { path = "../../crates/types" }
+errors     = { path = "../../crates/errors" }
+tokio      = { workspace = true }
+reqwest    = { workspace = true }
+axum       = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }

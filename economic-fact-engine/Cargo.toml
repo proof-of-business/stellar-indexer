@@ -1,6 +1,30 @@
+[workspace]
+members = [
+    ".",
+    "contracts/shielded-pool",
+    "contracts/verifier-contract",
+    "crates/types",
+    "crates/errors",
+    "crates/zk-circuits",
+    "crates/corridor-sdk",
+    "services/on-ramp-service",
+    "services/off-ramp-service",
+    "services/compliance-oracle",
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+thiserror   = "1"
+tokio       = { version = "1", features = ["full"] }
+reqwest     = { version = "0.12", features = ["json"] }
+axum        = "0.7"
+proptest    = "1"
+
 [package]
 name = "economic-fact-engine"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]

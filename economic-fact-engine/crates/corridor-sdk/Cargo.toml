@@ -1,0 +1,12 @@
+[package]
+name = "corridor-sdk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+types      = { path = "../types" }
+errors     = { path = "../errors" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+reqwest    = { workspace = true }
+tokio      = { workspace = true }

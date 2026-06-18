@@ -45,7 +45,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Ensure no variant's `Display` output includes denomination, identity, Note preimage, or credential fields
     - _Requirements: 8.1, 8.3, 8.4_
 
-  - [ ]* 1.4 Write property test for `CorridorError` structured completeness
+  - [-] 1.4 Write property test for `CorridorError` structured completeness
     - **Property 18: Structured error completeness**
     - For each CorridorError variant, assert serialization round-trips and contains none of:
       amount literals, identity strings, or Note preimage data

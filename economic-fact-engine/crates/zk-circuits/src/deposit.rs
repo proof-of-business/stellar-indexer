@@ -135,3 +135,95 @@ impl ConstraintSynthesizer<Fr> for DepositCircuit {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_relations::r1cs::ConstraintSystem;
+    use sha2::{Digest, Sha256};
+
+    /// Build a correct SHA-256 commitment for the given preimage.
+    fn compute_commitment(denomination: i64, salt: [u8; 32], receiver_pk: [u8; 32]) -> Vec<u8> {
+        let mut hasher = Sha256::new();
+        hasher.update(denomination.to_be_bytes());
+        hasher.update(salt);
+        hasher.update(receiver_pk);
+        hasher.finalize().to_vec()
+    }
+
+    /// Test 1: a valid (denomination, salt, receiver_pk) triple satisfies all constraints.
+    #[test]
+    fn test_valid_deposit_circuit() {
+        let denomination: i64 = 1_000_000; // 1 XLM in stroops, positive
+        let salt = [0x42u8; 32];
+        let receiver_pk = [0x7fu8; 32];
+        let commitment = compute_commitment(denomination, salt, receiver_pk);
+
+        let circuit = DepositCircuit {
+            commitment:   Some(commitment),
+            denomination: Some(denomination),
+            salt:         Some(salt),
+            receiver_pk:  Some(receiver_pk),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit.generate_constraints(cs.clone()).expect("constraint generation should not error");
+        assert!(
+            cs.is_satisfied().unwrap(),
+            "valid deposit circuit should satisfy all constraints"
+        );
+    }
+
+    /// Test 2: a commitment that does NOT match the preimage fails constraint 1.
+    #[test]
+    fn test_mismatched_commitment_fails() {
+        let denomination: i64 = 5_000_000;
+        let salt = [0x11u8; 32];
+        let receiver_pk = [0x22u8; 32];
+        // Deliberately wrong commitment: all zeros
+        let wrong_commitment = vec![0u8; 32];
+
+        let circuit = DepositCircuit {
+            commitment:   Some(wrong_commitment),
+            denomination: Some(denomination),
+            salt:         Some(salt),
+            receiver_pk:  Some(receiver_pk),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit.generate_constraints(cs.clone()).expect("constraint generation should not error");
+        assert!(
+            !cs.is_satisfied().unwrap(),
+            "mismatched commitment should fail the hash equality constraint"
+        );
+    }
+
+    /// Test 3: denomination = 0 with a correctly computed commitment fails the range check constraint.
+    #[test]
+    fn test_zero_denomination_fails() {
+        let denomination: i64 = 0;
+        let salt = [0xabu8; 32];
+        let receiver_pk = [0xcdu8; 32];
+        // Commitment is correct for denomination=0, so constraint 1 passes;
+        // constraint 2 (denomination > 0) must catch it.
+        let commitment = compute_commitment(denomination, salt, receiver_pk);
+
+        let circuit = DepositCircuit {
+            commitment:   Some(commitment),
+            denomination: Some(denomination),
+            salt:         Some(salt),
+            receiver_pk:  Some(receiver_pk),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        // generate_constraints may itself return an error (e.g., inverse of 0 is undefined),
+        // or it may succeed but leave the system unsatisfied.  Either outcome confirms the
+        // zero-denomination is rejected.
+        let result = circuit.generate_constraints(cs.clone());
+        let rejected = result.is_err() || !cs.is_satisfied().unwrap_or(false);
+        assert!(
+            rejected,
+            "denomination = 0 should be rejected by the range-check constraint"
+        );
+    }
+}

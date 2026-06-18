@@ -52,9 +52,9 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - **Validates: Requirements 8.1, 8.3, 8.4**
 
 
-- [-] 2. ZK circuits — Groth16/BLS12-381 R1CS constraints and prover API
+- [x] 2. ZK circuits — Groth16/BLS12-381 R1CS constraints and prover API
 
-  - [-] 2.1 Implement `Deposit_Circuit` R1CS constraints
+  - [x] 2.1 Implement `Deposit_Circuit` R1CS constraints
     - In `crates/zk-circuits/src/deposit.rs`, define `DepositCircuit` implementing `ark_relations::r1cs::ConstraintSynthesizer<Fr>`
     - Wire `ark-crypto-primitives` SHA-256 gadget: `sha256_gadget(denomination_be || salt_be || receiver_pk_be) == commitment`
     - Add range check constraint: `denomination > 0`
@@ -62,13 +62,13 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Private witnesses: `denomination: i64`, `salt: [u8;32]`, `receiver_pk: [u8;32]`
     - _Requirements: 3.1, 3.2_
 
-  - [ ]* 2.2 Write unit tests for `Deposit_Circuit` with known-good inputs
+  - [x] 2.2 Write unit tests for `Deposit_Circuit` with known-good inputs
     - Test that a valid `(denomination, salt, receiver_pk)` triple satisfies all constraints
     - Test that a mismatched commitment fails constraint synthesis
     - Test that `denomination = 0` fails the range check constraint
     - _Requirements: 3.1, 3.2_
 
-  - [-] 2.3 Implement `Withdrawal_Circuit` R1CS constraints
+  - [x] 2.3 Implement `Withdrawal_Circuit` R1CS constraints
     - In `crates/zk-circuits/src/withdrawal.rs`, define `WithdrawalCircuit`
     - Constraint 1: `commitment = sha256_gadget(denomination_be || salt_be || receiver_pk_be)`
     - Constraint 2: `merkle_root == incremental_merkle_verify(commitment, path, indices)` using SHA-256 at each node
@@ -84,7 +84,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Test that incorrect nullifier fails constraint 3
     - _Requirements: 3.4_
 
-  - [-] 2.5 Implement `Compliance_Circuit` R1CS constraints
+  - [x] 2.5 Implement `Compliance_Circuit` R1CS constraints
     - In `crates/zk-circuits/src/compliance.rs`, define `ComplianceCircuit`
     - Constraint 1: `denomination < AML_THRESHOLD_STROOPS + 1` (range check)
     - Constraint 2: Ed25519 signature gadget — `oracle_sig_verify(identity_commitment, oracle_signature, oracle_vk) == true`
@@ -100,7 +100,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Test that invalid oracle signature fails constraint 2
     - _Requirements: 3.6, 5.7_
 
-  - [-] 2.7 Implement prover API in `crates/zk-circuits/src/prover.rs`
+  - [x] 2.7 Implement prover API in `crates/zk-circuits/src/prover.rs`
     - Implement `prove_deposit(pk, denomination, salt, receiver_pk) -> Result<(ProofBytes, PublicInputs), CircuitError>`
     - Implement `prove_withdrawal(pk, denomination, salt, receiver_pk, merkle_path, indices, merkle_root) -> Result<(ProofBytes, PublicInputs), CircuitError>`
     - Implement `prove_compliance(pk, denomination, credential, holder_secret_key, epoch, vk_digest) -> Result<(ProofBytes, PublicInputs), CircuitError>`

@@ -66,3 +66,117 @@ pub enum CorridorError {
     #[error("anchor integration failure")]
     AnchorIntegrationFailure,
 }
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// All 11 variants in definition order so we catch any additions at compile time.
+    fn all_variants() -> Vec<CorridorError> {
+        vec![
+            CorridorError::ProofVerificationFailed,
+            CorridorError::NullifierAlreadySpent,
+            CorridorError::NoteAlreadyRedeemed,
+            CorridorError::DepositAtomicityFailure,
+            CorridorError::UnshieldedDepositRejected,
+            CorridorError::PoolCapacityExceeded,
+            CorridorError::InvalidAmount,
+            CorridorError::InvalidCredential,
+            CorridorError::CredentialExpired,
+            CorridorError::OfframpSettlementTimeout,
+            CorridorError::AnchorIntegrationFailure,
+        ]
+    }
+
+    #[test]
+    fn all_11_variants_present() {
+        // Ensures the helper above stays in sync; will fail to compile if a variant is renamed.
+        assert_eq!(all_variants().len(), 11);
+    }
+
+    // ── Serde shape ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn serde_round_trip_all_variants() {
+        for variant in all_variants() {
+            let json = serde_json::to_string(&variant).expect("serialize");
+            let back: CorridorError = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(variant, back, "round-trip failed for {variant:?}");
+        }
+    }
+
+    #[test]
+    fn serde_uses_tag_code_field() {
+        // {"code": "ProofVerificationFailed"} — unit variants must NOT have a "detail" key.
+        let json = serde_json::to_string(&CorridorError::ProofVerificationFailed).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["code"], "ProofVerificationFailed", "tag field must be 'code'");
+        assert!(v.get("detail").is_none(), "unit variants must not emit 'detail'");
+    }
+
+    #[test]
+    fn serde_all_variants_have_code_tag() {
+        for variant in all_variants() {
+            let json = serde_json::to_string(&variant).unwrap();
+            let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert!(
+                v.get("code").is_some(),
+                "variant {variant:?} must serialize with a 'code' tag"
+            );
+        }
+    }
+
+    // ── Privacy invariant: Display must not leak sensitive data ───────────────
+
+    /// Strings that must never appear in any error message.
+    ///
+    /// These are field names and value-bearing terms that would leak denomination,
+    /// identity, or Note preimage data. Generic descriptors like "invalid amount"
+    /// are acceptable — they describe the error category, not a concrete value.
+    const FORBIDDEN_FRAGMENTS: &[&str] = &[
+        // Denomination / amount value leaks (numeric data or field names)
+        "stroops",
+        "denomination",
+        // Identity / credential field leaks
+        "credential_id",
+        "oracle_signature",
+        "issued_at",
+        "expires_at",
+        "identity_commitment",
+        // Note preimage field leaks
+        "receiver_pk",
+        "leaf_index",
+    ];
+
+    #[test]
+    fn display_contains_no_sensitive_fragments() {
+        for variant in all_variants() {
+            let msg = variant.to_string().to_lowercase();
+            for fragment in FORBIDDEN_FRAGMENTS {
+                assert!(
+                    !msg.contains(fragment),
+                    "CorridorError::{variant:?} Display contains forbidden fragment '{fragment}': \"{msg}\""
+                );
+            }
+        }
+    }
+
+    // ── Error trait ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn implements_std_error() {
+        fn assert_error<E: std::error::Error>(_: &E) {}
+        for variant in all_variants() {
+            assert_error(&variant);
+        }
+    }
+
+    #[test]
+    fn implements_clone_and_eq() {
+        for variant in all_variants() {
+            assert_eq!(variant.clone(), variant);
+        }
+    }
+}

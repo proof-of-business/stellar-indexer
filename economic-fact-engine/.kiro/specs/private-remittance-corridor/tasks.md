@@ -15,7 +15,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
 
 ## Tasks
 
-- [-] 1. Workspace scaffold — Cargo workspace, shared types, and shared errors
+- [x] 1. Workspace scaffold — Cargo workspace, shared types, and shared errors
 
   - [x] 1.1 Create Cargo workspace with all crate members
     - Create root `Cargo.toml` declaring workspace members:
@@ -35,7 +35,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Derive `serde::Serialize/Deserialize`, `Clone`, `Debug` on all types
     - _Requirements: 1.2, 2.1, 3.1, 3.3, 9.5_
 
-  - [ ] 1.3 Implement `crates/errors` — shared `CorridorError` enum
+  - [-] 1.3 Implement `crates/errors` — shared `CorridorError` enum
     - Define `CorridorError` using `thiserror::Error` with all 11 variants:
       `ProofVerificationFailed`, `NullifierAlreadySpent`, `NoteAlreadyRedeemed`,
       `DepositAtomicityFailure`, `UnshieldedDepositRejected`, `PoolCapacityExceeded`,

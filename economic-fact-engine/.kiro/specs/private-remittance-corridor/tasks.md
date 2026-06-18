@@ -35,7 +35,7 @@ Integration tests use `soroban-sdk::testutils` + `wiremock`.
     - Derive `serde::Serialize/Deserialize`, `Clone`, `Debug` on all types
     - _Requirements: 1.2, 2.1, 3.1, 3.3, 9.5_
 
-  - [-] 1.3 Implement `crates/errors` — shared `CorridorError` enum
+  - [x] 1.3 Implement `crates/errors` — shared `CorridorError` enum
     - Define `CorridorError` using `thiserror::Error` with all 11 variants:
       `ProofVerificationFailed`, `NullifierAlreadySpent`, `NoteAlreadyRedeemed`,
       `DepositAtomicityFailure`, `UnshieldedDepositRejected`, `PoolCapacityExceeded`,

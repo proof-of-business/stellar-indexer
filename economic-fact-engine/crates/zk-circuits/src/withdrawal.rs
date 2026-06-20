@@ -198,3 +198,194 @@ impl ConstraintSynthesizer<Fr> for WithdrawalCircuit {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_relations::r1cs::ConstraintSystem;
+    use sha2::{Digest, Sha256};
+
+    // ── Merkle tree helpers ────────────────────────────────────────────────
+
+    /// Compute `SHA-256(left || right)`.
+    fn sha256_pair(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+        let mut h = Sha256::new();
+        h.update(left);
+        h.update(right);
+        h.finalize().into()
+    }
+
+    /// Pre-compute the 21 empty-subtree hashes (index 0 = leaf level).
+    ///   empty[0] = SHA-256(b"zcash_merkle_leaf")
+    ///   empty[i+1] = SHA-256(empty[i] || empty[i])
+    fn empty_hashes() -> [[u8; 32]; 21] {
+        let mut e = [[0u8; 32]; 21];
+        e[0] = Sha256::digest(b"zcash_merkle_leaf").into();
+        for i in 0..20 {
+            let prev = e[i];
+            e[i + 1] = sha256_pair(&prev, &prev);
+        }
+        e
+    }
+
+    /// Build a depth-20 Merkle path for a single commitment at leaf index 0.
+    ///
+    /// Returns `(root, siblings[20], indices[20])`.
+    /// All indices are `false` (commitment is the left child at every level).
+    fn build_merkle_path_for_leaf(
+        commitment: [u8; 32],
+    ) -> ([u8; 32], [[u8; 32]; 20], [bool; 20]) {
+        let empty = empty_hashes();
+
+        // At level 0 the sibling of our commitment is the empty leaf hash.
+        let mut siblings = [[0u8; 32]; 20];
+        let mut indices  = [false; 20];
+
+        let mut current = commitment;
+        for level in 0..20 {
+            // Index bit = false  →  current is the left child
+            siblings[level] = empty[level];
+            indices[level]  = false;
+            current = sha256_pair(&current, &empty[level]);
+        }
+
+        (current, siblings, indices)
+    }
+
+    // ── Shared test data ───────────────────────────────────────────────────
+
+    const DENOMINATION: i64    = 1_000_000i64;
+    const SALT:         [u8; 32] = [0x42u8; 32];
+    const RECEIVER_PK:  [u8; 32] = [0x7fu8; 32];
+
+    fn compute_commitment() -> [u8; 32] {
+        let mut h = Sha256::new();
+        h.update(DENOMINATION.to_be_bytes());
+        h.update(SALT);
+        h.update(RECEIVER_PK);
+        h.finalize().into()
+    }
+
+    fn compute_nullifier() -> [u8; 32] {
+        let mut h = Sha256::new();
+        h.update(SALT);
+        h.update(RECEIVER_PK);
+        h.finalize().into()
+    }
+
+    // ── Test 1: valid proof with correct 20-level Merkle path ─────────────
+    #[test]
+    fn test_valid_withdrawal_circuit() {
+        let commitment = compute_commitment();
+        let nullifier  = compute_nullifier();
+        let (root, siblings, indices) = build_merkle_path_for_leaf(commitment);
+
+        let circuit = WithdrawalCircuit {
+            merkle_root:         Some(root),
+            nullifier:           Some(nullifier),
+            denomination:        Some(DENOMINATION),
+            salt:                Some(SALT),
+            receiver_pk:         Some(RECEIVER_PK),
+            merkle_path:         Some(siblings),
+            merkle_path_indices: Some(indices),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit
+            .generate_constraints(cs.clone())
+            .expect("constraint generation must not error for valid witnesses");
+        assert!(
+            cs.is_satisfied().unwrap(),
+            "valid withdrawal circuit should satisfy all constraints"
+        );
+    }
+
+    // ── Test 2: flipping one sibling byte causes constraint failure ────────
+    #[test]
+    fn test_flipped_sibling_fails() {
+        let commitment = compute_commitment();
+        let nullifier  = compute_nullifier();
+        let (root, mut siblings, indices) = build_merkle_path_for_leaf(commitment);
+
+        // Corrupt one byte in the sibling at level 0
+        siblings[0][0] ^= 0xff;
+
+        let circuit = WithdrawalCircuit {
+            merkle_root:         Some(root),
+            nullifier:           Some(nullifier),
+            denomination:        Some(DENOMINATION),
+            salt:                Some(SALT),
+            receiver_pk:         Some(RECEIVER_PK),
+            merkle_path:         Some(siblings),
+            merkle_path_indices: Some(indices),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit
+            .generate_constraints(cs.clone())
+            .expect("constraint generation should not error (just produce unsatisfied system)");
+        assert!(
+            !cs.is_satisfied().unwrap(),
+            "flipping a sibling byte should violate the Merkle-root constraint"
+        );
+    }
+
+    // ── Test 3: flipping one path index causes constraint failure ──────────
+    #[test]
+    fn test_flipped_path_index_fails() {
+        let commitment = compute_commitment();
+        let nullifier  = compute_nullifier();
+        let (root, siblings, mut indices) = build_merkle_path_for_leaf(commitment);
+
+        // Flip the index bit at level 5
+        indices[5] = !indices[5];
+
+        let circuit = WithdrawalCircuit {
+            merkle_root:         Some(root),
+            nullifier:           Some(nullifier),
+            denomination:        Some(DENOMINATION),
+            salt:                Some(SALT),
+            receiver_pk:         Some(RECEIVER_PK),
+            merkle_path:         Some(siblings),
+            merkle_path_indices: Some(indices),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit
+            .generate_constraints(cs.clone())
+            .expect("constraint generation should not error (just produce unsatisfied system)");
+        assert!(
+            !cs.is_satisfied().unwrap(),
+            "flipping a path-index bit should violate the Merkle-root constraint"
+        );
+    }
+
+    // ── Test 4: incorrect nullifier (all-zeros) fails constraint 3 ────────
+    #[test]
+    fn test_wrong_nullifier_fails() {
+        let commitment = compute_commitment();
+        let (root, siblings, indices) = build_merkle_path_for_leaf(commitment);
+
+        // Supply an all-zeros nullifier instead of SHA-256(salt || receiver_pk)
+        let wrong_nullifier = [0u8; 32];
+
+        let circuit = WithdrawalCircuit {
+            merkle_root:         Some(root),
+            nullifier:           Some(wrong_nullifier),
+            denomination:        Some(DENOMINATION),
+            salt:                Some(SALT),
+            receiver_pk:         Some(RECEIVER_PK),
+            merkle_path:         Some(siblings),
+            merkle_path_indices: Some(indices),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit
+            .generate_constraints(cs.clone())
+            .expect("constraint generation should not error (just produce unsatisfied system)");
+        assert!(
+            !cs.is_satisfied().unwrap(),
+            "all-zeros nullifier should violate the nullifier equality constraint"
+        );
+    }
+}

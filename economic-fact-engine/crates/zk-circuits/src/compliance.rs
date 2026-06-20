@@ -217,3 +217,197 @@ impl ConstraintSynthesizer<Fr> for ComplianceCircuit {
         Ok(())
     }
 }
+
+// ─── Unit Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_relations::r1cs::ConstraintSystem;
+    use sha2::{Digest, Sha256};
+    use types::AML_THRESHOLD_STROOPS;
+
+    // ── Test helpers ────────────────────────────────────────────────────────
+
+    /// Compute `vk_digest = SHA-256(credential_commitment || oracle_signature)`.
+    /// This mirrors the proxy used by the circuit for constraint 2.
+    fn compute_vk_digest(
+        credential_commitment: [u8; 32],
+        oracle_signature: [u8; 64],
+    ) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(credential_commitment);
+        hasher.update(oracle_signature);
+        hasher.finalize().into()
+    }
+
+    /// Convert a u64 epoch to the 32-byte big-endian representation used by the circuit.
+    fn epoch_to_be32(epoch: u64) -> [u8; 32] {
+        let mut arr = [0u8; 32];
+        arr[24..32].copy_from_slice(&epoch.to_be_bytes());
+        arr
+    }
+
+    /// Build a `ComplianceCircuit` with all fields set to internally consistent values.
+    fn build_circuit(
+        denomination: i64,
+        credential_commitment: [u8; 32],
+        credential_expiry: u64,
+        epoch: u64,
+        oracle_signature: [u8; 64],
+    ) -> ComplianceCircuit {
+        let vk_digest = compute_vk_digest(credential_commitment, oracle_signature);
+        let epoch_be = epoch_to_be32(epoch);
+
+        ComplianceCircuit {
+            vk_digest: Some(vk_digest),
+            epoch_be: Some(epoch_be),
+            denomination: Some(denomination),
+            credential_commitment: Some(credential_commitment),
+            credential_expiry: Some(credential_expiry),
+            oracle_signature: Some(oracle_signature),
+            holder_secret_key: Some([0x55u8; 32]),
+        }
+    }
+
+    // ── Tests ────────────────────────────────────────────────────────────────
+
+    /// Test 1 (Requirements 3.6, 5.7):
+    /// A valid circuit with `denomination = AML_THRESHOLD_STROOPS - 1` (boundary value,
+    /// just under the AML threshold) must satisfy all constraints.
+    #[test]
+    fn test_valid_circuit_boundary_denomination() {
+        let denomination: i64 = AML_THRESHOLD_STROOPS - 1; // 99_999_999_998
+        let credential_commitment = [0x01u8; 32];
+        let oracle_signature = [0xabu8; 64];
+        let epoch: u64 = 1_700_000_000;
+        let credential_expiry: u64 = epoch + 86_400; // expires 1 day after epoch
+
+        let circuit = build_circuit(
+            denomination,
+            credential_commitment,
+            credential_expiry,
+            epoch,
+            oracle_signature,
+        );
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit
+            .generate_constraints(cs.clone())
+            .expect("constraint generation should not error for a valid circuit");
+
+        assert!(
+            cs.is_satisfied().unwrap(),
+            "denomination = AML_THRESHOLD_STROOPS - 1 should satisfy all constraints"
+        );
+    }
+
+    /// Test 2 (Requirements 3.6):
+    /// `denomination = AML_THRESHOLD_STROOPS + 1` (i.e., 100_000_000_000) exceeds the
+    /// AML threshold and must fail constraint 1 (range check).
+    ///
+    /// When denomination > AML_THRESHOLD_STROOPS, the witness
+    /// `diff = AML_THRESHOLD_STROOPS - denomination` underflows to a very large u64,
+    /// setting bit 63, which the circuit explicitly prohibits.
+    #[test]
+    fn test_denomination_above_aml_threshold_fails() {
+        let denomination: i64 = AML_THRESHOLD_STROOPS + 1; // 100_000_000_000
+        let credential_commitment = [0x02u8; 32];
+        let oracle_signature = [0xbcu8; 64];
+        let epoch: u64 = 1_700_000_000;
+        let credential_expiry: u64 = epoch + 86_400;
+
+        // Build the circuit. The internal witness for the AML diff will be
+        // Fr::from((AML_THRESHOLD_STROOPS - denomination) as u64), which wraps
+        // to 0xFFFFFFFFFFFFFFFF — bit 63 is set, violating the range constraint.
+        let circuit = build_circuit(
+            denomination,
+            credential_commitment,
+            credential_expiry,
+            epoch,
+            oracle_signature,
+        );
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let result = circuit.generate_constraints(cs.clone());
+        let rejected = result.is_err() || !cs.is_satisfied().unwrap_or(false);
+        assert!(
+            rejected,
+            "denomination = AML_THRESHOLD_STROOPS + 1 should fail the AML range-check constraint"
+        );
+    }
+
+    /// Test 3 (Requirements 3.6, 5.7):
+    /// An expired credential (`credential_expiry < epoch`) must fail constraint 3.
+    ///
+    /// The circuit computes `diff_expiry = expiry - epoch - 1`; when expiry <= epoch this
+    /// wraps to a value with bit 63 set, violating the non-negative bit constraint.
+    #[test]
+    fn test_expired_credential_fails() {
+        let denomination: i64 = 1_000_000; // well within AML threshold
+        let credential_commitment = [0x03u8; 32];
+        let oracle_signature = [0xcdu8; 64];
+        let epoch: u64 = 1_700_000_000;
+        // Expiry is strictly before epoch: credential has already expired.
+        let credential_expiry: u64 = epoch - 1;
+
+        let circuit = build_circuit(
+            denomination,
+            credential_commitment,
+            credential_expiry,
+            epoch,
+            oracle_signature,
+        );
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let result = circuit.generate_constraints(cs.clone());
+        let rejected = result.is_err() || !cs.is_satisfied().unwrap_or(false);
+        assert!(
+            rejected,
+            "expired credential (expiry < epoch) should fail constraint 3"
+        );
+    }
+
+    /// Test 4 (Requirements 3.6, 5.7):
+    /// An invalid oracle signature must fail constraint 2.
+    ///
+    /// The circuit enforces `SHA-256(credential_commitment || oracle_signature) == vk_digest`.
+    /// Supplying a forged signature that does not match the public `vk_digest` causes the
+    /// SHA-256 equality constraint to be violated.
+    #[test]
+    fn test_invalid_oracle_signature_fails() {
+        let denomination: i64 = 500_000;
+        let credential_commitment = [0x04u8; 32];
+        let oracle_signature = [0xdeu8; 64]; // the real signature
+        let epoch: u64 = 1_700_000_000;
+        let credential_expiry: u64 = epoch + 3_600;
+
+        // Compute vk_digest from the *real* signature — this becomes the public input.
+        let real_vk_digest = compute_vk_digest(credential_commitment, oracle_signature);
+        let epoch_be = epoch_to_be32(epoch);
+
+        // Build a circuit with a *forged* signature in the private witness but with
+        // vk_digest committed to the real signature. The SHA-256 hash will not match.
+        let forged_signature = [0xffu8; 64]; // different bytes from oracle_signature
+
+        let circuit = ComplianceCircuit {
+            vk_digest: Some(real_vk_digest),
+            epoch_be: Some(epoch_be),
+            denomination: Some(denomination),
+            credential_commitment: Some(credential_commitment),
+            credential_expiry: Some(credential_expiry),
+            oracle_signature: Some(forged_signature),
+            holder_secret_key: Some([0x55u8; 32]),
+        };
+
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        circuit
+            .generate_constraints(cs.clone())
+            .expect("constraint generation should not error");
+
+        assert!(
+            !cs.is_satisfied().unwrap(),
+            "forged oracle signature should fail the SHA-256 equality constraint 2"
+        );
+    }
+}

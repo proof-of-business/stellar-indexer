@@ -36,6 +36,66 @@ pub struct Note {
     pub leaf_index: Option<u32>,
 }
 
+impl Note {
+    /// Serialise a Note to bytes.
+    ///
+    /// Layout (77 or 73 bytes):
+    ///   denomination_be : 8 bytes  (i64, big-endian)
+    ///   salt            : 32 bytes
+    ///   receiver_pk     : 32 bytes
+    ///   leaf_flag       : 1 byte   (0x01 if Some, 0x00 if None)
+    ///   [leaf_index_be] : 4 bytes  (u32, big-endian; present only when flag == 0x01)
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(77);
+        buf.extend_from_slice(&self.denomination.to_be_bytes());
+        buf.extend_from_slice(&self.salt);
+        buf.extend_from_slice(&self.receiver_pk);
+        match self.leaf_index {
+            Some(idx) => {
+                buf.push(0x01);
+                buf.extend_from_slice(&idx.to_be_bytes());
+            }
+            None => {
+                buf.push(0x00);
+            }
+        }
+        buf
+    }
+
+    /// Deserialise a Note from bytes produced by [`Note::to_bytes`].
+    ///
+    /// Returns `None` if the byte slice is malformed (wrong length, invalid flag, etc.).
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        // Minimum: 8 + 32 + 32 + 1 = 73 bytes (leaf_index absent)
+        if b.len() < 73 {
+            return None;
+        }
+        let denomination = i64::from_be_bytes(b[0..8].try_into().ok()?);
+        let salt: [u8; 32] = b[8..40].try_into().ok()?;
+        let receiver_pk: [u8; 32] = b[40..72].try_into().ok()?;
+        let flag = b[72];
+        let leaf_index = match flag {
+            0x00 => {
+                // No trailing bytes expected.
+                if b.len() != 73 {
+                    return None;
+                }
+                None
+            }
+            0x01 => {
+                // 4 more bytes for leaf_index.
+                if b.len() != 77 {
+                    return None;
+                }
+                let idx = u32::from_be_bytes(b[73..77].try_into().ok()?);
+                Some(idx)
+            }
+            _ => return None,
+        };
+        Some(Note { denomination, salt, receiver_pk, leaf_index })
+    }
+}
+
 // ─── Commitment / Nullifier newtypes ──────────────────────────────────────────
 
 /// SHA-256 commitment to a note's fields.

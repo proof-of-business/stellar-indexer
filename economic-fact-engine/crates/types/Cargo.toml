@@ -9,3 +9,4 @@ serde_with  = { version = "3", features = ["macros"] }
 
 [dev-dependencies]
 serde_json  = { workspace = true }
+proptest    = { workspace = true }
